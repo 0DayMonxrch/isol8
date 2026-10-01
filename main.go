@@ -22,8 +22,6 @@ func main() {
 }
 
 func parent() {
-	fmt.Printf("Running [%s] as the Parent process (PID:%d)\n", os.Args[2:], os.Getpid())
-
 	// re-exec pattern
 	// we pass "child" as the first argument so the new process knows its role.
 	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
@@ -33,6 +31,9 @@ func parent() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	// INJECTION: Pass the rootfs config to the child via Env vars
+	cmd.Env = append(os.Environ(), "ISOL8_ROOTFS=./app/rootfs")
+
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
@@ -40,7 +41,9 @@ func parent() {
 }
 
 func child() {
-	fmt.Printf("Running [%s] as the Child process (PID: %d)\n", os.Args[2:], os.Getpid())
+	// EXTRACTION: Read the config passed from the parent
+	rootfs := os.Getenv("MINICON_ROOTFS")
+	fmt.Printf("[Child] Bootstrapping container using rootfs: %s\n", rootfs)
 
 	// os.Args[2] is the actual command the user wants to run (e.g., "echo")
 	// os.Args[3:] are the arguments to that command (e.g., "hello")
@@ -55,5 +58,4 @@ func child() {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
-
 }

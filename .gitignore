@@ -1,3 +1,22 @@
-rootfs/
+# Binaries and build artifacts
 isol8
+*.exe
+*.test
+*.out
+
+# Unpacked rootfs and downloaded archive images
+rootfs/
+app/rootfs/
+*.tar.gz
+*.tar.xz
+*.tar
+
+# Internal docs & planning notes
 docs/
+
+# Editor and OS metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~

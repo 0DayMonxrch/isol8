@@ -35,8 +35,9 @@ func parent() {
 
 	// CLONE_NEWUTS: isolate hostname
 	// CLONE_NEWNS: isolate mount namespace
+	// CLONE_NEWPID: isolate process IDs
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS,
+		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWNS | syscall.CLONE_NEWPID,
 	}
 
 	absRootfs, err := filepath.Abs("./app/rootfs")
@@ -57,7 +58,7 @@ func parent() {
 func child() {
 	// EXTRACTION: Read the config passed from the parent
 	rootfs := os.Getenv("ISOL8_ROOTFS")
-	fmt.Printf("[Child] Bootstrapping container using rootfs: %s\n", rootfs)
+	fmt.Printf("[Child] Bootstrapping container using rootfs: %s (PID: %d)\n", rootfs, os.Getpid())
 
 	// Set container-specific hostname in isolated UTS namespace
 	if err := syscall.Sethostname([]byte("container-root")); err != nil {
@@ -77,26 +78,38 @@ func child() {
 		os.Exit(1)
 	}
 
-	// 3. Create temporary directory to hold the old host root
+	// 3. Mount fresh procfs instance in rootfs/proc before pivot_root
+	// (Linux requires parent /proc to be visible when mounting a new procfs in a user/PID namespace)
+	procDir := filepath.Join(rootfs, "proc")
+	if err := os.MkdirAll(procDir, 0555); err != nil {
+		fmt.Printf("Error creating /proc directory: %v\n", err)
+		os.Exit(1)
+	}
+	if err := syscall.Mount("proc", procDir, "proc", 0, ""); err != nil {
+		fmt.Printf("Error mounting /proc: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 4. Create temporary directory to hold the old host root
 	oldRoot := filepath.Join(rootfs, ".old_root")
 	if err := os.MkdirAll(oldRoot, 0700); err != nil {
 		fmt.Printf("Error creating .old_root directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 4. Pivot the root filesystem
+	// 5. Pivot the root filesystem
 	if err := syscall.PivotRoot(rootfs, oldRoot); err != nil {
 		fmt.Printf("Error pivot_root: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 5. Change working directory to the new root
+	// 6. Change working directory to the new root
 	if err := os.Chdir("/"); err != nil {
 		fmt.Printf("Error chdir to /: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 6. Unmount old root with MNT_DETACH and remove temporary directory
+	// 7. Unmount old root with MNT_DETACH and remove temporary directory
 	if err := syscall.Unmount("/.old_root", syscall.MNT_DETACH); err != nil {
 		fmt.Printf("Error unmounting .old_root: %v\n", err)
 		os.Exit(1)

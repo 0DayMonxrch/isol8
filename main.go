@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 )
 
 func main() {
@@ -31,6 +32,11 @@ func parent() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	// CLONE_NEWUTS isolates the hostname and NIS domain name
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS,
+	}
+
 	// INJECTION: Pass the rootfs config to the child via Env vars
 	cmd.Env = append(os.Environ(), "ISOL8_ROOTFS=./app/rootfs")
 
@@ -42,8 +48,14 @@ func parent() {
 
 func child() {
 	// EXTRACTION: Read the config passed from the parent
-	rootfs := os.Getenv("MINICON_ROOTFS")
+	rootfs := os.Getenv("ISOL8_ROOTFS")
 	fmt.Printf("[Child] Bootstrapping container using rootfs: %s\n", rootfs)
+
+	// Set container-specific hostname in isolated UTS namespace
+	if err := syscall.Sethostname([]byte("container-root")); err != nil {
+		fmt.Printf("Error setting hostname: %v\n", err)
+		os.Exit(1)
+	}
 
 	// os.Args[2] is the actual command the user wants to run (e.g., "echo")
 	// os.Args[3:] are the arguments to that command (e.g., "hello")

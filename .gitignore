@@ -6,7 +6,7 @@ isol8
 
 # Unpacked rootfs and downloaded archive images
 rootfs/
-app/rootfs/
+app/
 *.tar.gz
 *.tar.xz
 *.tar

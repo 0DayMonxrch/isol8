@@ -22,7 +22,7 @@ Docker doesn't boot an OS. It sets up three main layers of isolation around a pr
 | **Container Hostname** | UTS Namespace (`CLONE_NEWUTS`) | Assigns an isolated hostname (`container-root`) without touching the host. |
 | **Container Rootfs (`/`)** | Mount Namespace (`CLONE_NEWNS`) + `pivot_root` | Unshares mount propagation (`MS_PRIVATE`), bind-mounts the rootfs, and pivots root to Alpine so the host filesystem is inaccessible. |
 | **Container PID 1** | PID Namespace (`CLONE_NEWPID`) + fresh `/proc` | Isolates process IDs. The container command runs as PID 1, and `/proc` only displays container processes. |
-| **Resource Limits** | cgroups v2 (`cpu`, `memory`, `pids`) | *(Next Phase — in progress)* |
+| **Resource Limits** | cgroups v2 (`cpu`, `memory`, `pids`) | Subtree delegation, bounds fork count (`pids.max`), memory usage (`memory.max`), and CPU quota (`cpu.max`) before `execve`. |
 
 ---
 
@@ -40,6 +40,12 @@ Docker doesn't boot an OS. It sets up three main layers of isolation around a pr
 ### Milestone 3: PID Namespace & Process Model
 * **PID 1 via `syscall.Exec`**: The child bootstrap process sets up isolation and replaces itself via `syscall.Exec` with the user payload. The user command becomes true **PID 1**, gaining native kernel signal immunity and automatic orphan child reaping.
 * **Fresh `/proc`**: Mounted a fresh instance of `proc` to `rootfs/proc` so tools like `ps` only show processes inside the container.
+
+### Milestone 4: Cgroups v2 Resource Isolation
+* **Subtree Delegation**: Reads supported controllers from `cgroup.controllers` and delegates them sequentially through `cgroup.subtree_control` down to `/sys/fs/cgroup/isol8/<container_id>`.
+* **Zero-Window Process Attachment**: Attaches the child process via `cgroup.procs` using PID `0` right before `pivot_root` and `syscall.Exec`, eliminating any unconstrained execution window at startup.
+* **Configurable Limits & Bypass**: Supports `--pids-max`, `--memory-max`, `--cpu-max`, and `--insecure-no-pids-limit`.
+* **Lifecycle Cleanup**: The parent process tracks container cgroups and cleanly executes `rmdir` upon child termination.
 
 ---
 

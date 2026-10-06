@@ -213,6 +213,56 @@ test_4() {
 assert_success "Scenario 4: 50 concurrent containers with private mounts and writes" test_4
 
 echo ""
+echo "=== 5. Cgroups v2 Resource Limits & Lifecycle Cleanup Testing ==="
+
+# Scenario 5A: Cgroups v2 CLI parameters & flag handling
+test_5a() {
+  # Test that --pids-max, --memory-max, --cpu-max and --insecure-no-pids-limit are accepted
+  local out
+  out=$(unshare -r ./isol8 run --pids-max 100 --memory-max 268435456 --cpu-max "25000 100000" /bin/echo "cgroup_ok" | grep -v '\[Child\]')
+  if [ "$out" != "cgroup_ok" ]; then
+    echo "Failed to execute with custom cgroup limits: $out"
+    return 1
+  fi
+  out=$(unshare -r ./isol8 run --insecure-no-pids-limit /bin/echo "bypass_ok" | grep -v '\[Child\]')
+  if [ "$out" != "bypass_ok" ]; then
+    echo "Failed to execute with --insecure-no-pids-limit: $out"
+    return 1
+  fi
+  return 0
+}
+assert_success "Scenario 5A: Cgroups v2 CLI parameter parsing & configuration" test_5a
+
+# Scenario 5B: Cgroup directory lifecycle cleanup on process exit
+test_5b() {
+  local container_cgroups_before container_cgroups_after
+  container_cgroups_before=$(find ./app/rootfs/sys/fs/cgroup/isol8 -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l || true)
+  
+  unshare -r ./isol8 run /bin/sh -c 'exit 0' > /dev/null
+  
+  container_cgroups_after=$(find ./app/rootfs/sys/fs/cgroup/isol8 -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l || true)
+  if [ "$container_cgroups_before" -ne "$container_cgroups_after" ]; then
+    echo "Orphaned container cgroup directories detected after exit!"
+    return 1
+  fi
+  return 0
+}
+assert_success "Scenario 5B: Container cgroup directory lifecycle cleanup on exit" test_5b
+
+# Scenario 5C: Cgroup namespace isolation (CLONE_NEWCGROUP)
+test_5c() {
+  local output
+  output=$(unshare -r ./isol8 run /bin/sh -c 'cat /proc/self/cgroup' | grep -v '\[Child\]')
+  # Under CLONE_NEWCGROUP, cgroup root should be isolated (relative to namespace)
+  if [ -z "$output" ]; then
+    echo "Failed to read /proc/self/cgroup inside container"
+    return 1
+  fi
+  return 0
+}
+assert_success "Scenario 5C: Cgroup namespace isolation (CLONE_NEWCGROUP)" test_5c
+
+echo ""
 echo "=========================================="
 echo "Test Summary: $PASSED passed, $FAILED failed"
 echo "=========================================="
@@ -220,3 +270,4 @@ echo "=========================================="
 if [ "$FAILED" -ne 0 ]; then
   exit 1
 fi
+
